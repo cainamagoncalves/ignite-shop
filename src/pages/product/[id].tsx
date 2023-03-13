@@ -1,3 +1,4 @@
+import { useToastify } from "@/hooks/useToastify"
 import { stripe } from "@/lib/stripe"
 import { ImageContainer, ProductContainer, ProductDetails } from "@/styles/pages/product"
 import axios from "axios"
@@ -6,17 +7,23 @@ import Head from "next/head"
 import Image from "next/image"
 import { useRouter } from "next/router"
 import { useState } from "react"
+import { ToastContainer } from "react-toastify"
 import Stripe from "stripe"
+import { useShoppingCart } from "use-shopping-cart"
+import { Product as ShoppingCartProduct } from "use-shopping-cart/core"
+import "react-toastify/dist/ReactToastify.css";
+
+interface StripeProduct {
+  id: string
+  name: string
+  imageUrl: string
+  price: number
+  description: number
+  defaultPriceId: string
+}
 
 interface ProductProps {
-  product: {
-    id: string
-    name: string
-    imageUrl: string
-    price: string
-    description: number
-    defaultPriceId: string
-  }
+  product: StripeProduct
 }
 
 export default function Product({ product }: ProductProps) {
@@ -24,34 +31,35 @@ export default function Product({ product }: ProductProps) {
 
   const { isFallback } = useRouter()
 
+  const { addItem } = useShoppingCart()
+  const { successMessage } = useToastify()
+
+  function handleAddCartItem(product: StripeProduct) {
+    const shoppingCartProduct = {
+      id: product.id,
+      name: product.name,
+      image: product.imageUrl,
+      sku: product.id,
+      price: product.price,
+      priceId: product.defaultPriceId,
+      currency: 'BRL'
+    }
+
+    successMessage("Item adicionado ao carrinho.")
+    addItem(shoppingCartProduct, { count: 1 })
+  }
+
   if (isFallback) {
     return <p>Loading...</p>
   }
 
-  async function handleBuyProduct() {
-    setIsCreatingCheckoutSession(true)
-
-    try {
-      const response = await axios.post('/api/checkout', {
-        priceId: product.defaultPriceId
-      })
-
-      const { checkoutUrl } = response.data;
-
-      window.location.href = checkoutUrl
-    } catch (error) {
-      // Conectar com uma ferramenta de observabilidade (Datadog / Sentry) 
-
-      setIsCreatingCheckoutSession(false)
-
-      alert('Falha ao redirecionar ao checkout!')
-    }
-  }
+  const pageTitle = `${product.name} | Ignite shop`
 
   return (
     <>
+      <ToastContainer />
       <Head>
-        <title>{product.name} | Ignite shop</title>
+        <title>{pageTitle}</title>
       </Head>
       <ProductContainer>
         <ImageContainer>
@@ -61,13 +69,17 @@ export default function Product({ product }: ProductProps) {
 
         <ProductDetails>
           <h1>{product.name}</h1>
-          <span>{product.price}</span>
+          <span>{new Intl.NumberFormat('pr-BR', {
+            style: 'currency',
+            currency: 'BRL'
+          }).format(product.price / 100)}</span>
 
           <p>{product.description}</p>
-          <button disabled={isCreatingCheckoutSession} onClick={handleBuyProduct}>
-            Comprar agora
+          <button disabled={isCreatingCheckoutSession} onClick={() => handleAddCartItem(product)}>
+            Adicionar ao carrinho
           </button>
         </ProductDetails>
+
       </ProductContainer>
     </>
   )
@@ -75,7 +87,6 @@ export default function Product({ product }: ProductProps) {
 
 export const getStaticPaths: GetStaticPaths = async () => {
   // Buscar os produtos mais vendidos / mais acessados
-
 
   return {
     paths: [
@@ -100,10 +111,7 @@ export const getStaticProps: GetStaticProps<any, { id: string }> = async ({ para
         id: product.id,
         name: product.name,
         imageUrl: product.images[0],
-        price: new Intl.NumberFormat('pr-BR', {
-          style: 'currency',
-          currency: 'BRL'
-        }).format(price.unit_amount! / 100),
+        price: price.unit_amount,
         description: product.description,
         defaultPriceId: price.id
       }
